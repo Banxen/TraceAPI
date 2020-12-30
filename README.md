@@ -1,5 +1,5 @@
 # TraceAPI
-TraceAPI logs the Windows API calls and calls to runtime generated code for a given executable. Additionally one can log some specific module calls inside the given executable provided the module name is specified in **lowercase without the extension** on the command-line. 
+TraceAPI logs the Windows API calls and calls to runtime generated code for a given executable. Additionally one can log some specific module calls inside the given executable provided the module name is specified in **lowercase with/without the extension** on the command-line. 
 
 You can also specify the name for the output log file. If no name is specified default name "APItrace.out" is used.
 
