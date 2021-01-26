@@ -16,6 +16,12 @@ string moduleToTrack;
 KNOB<string> moduleNameToTrack(KNOB_MODE_WRITEONCE, "pintool", "m", "", "specify module name to track");
 KNOB<string> traceOutputFileName(KNOB_MODE_WRITEONCE, "pintool", "o", "", "specify trace output file name");
 
+EXCEPT_HANDLING_RESULT ExceptionHandler(THREADID tid, EXCEPTION_INFO *pExceptInfo, PHYSICAL_CONTEXT *pPhysCtxt, VOID *v)
+{
+	printf("Caught Exception!");
+	trace.flush();
+	return EHR_UNHANDLED;
+}
 
 string ExtractImageName(string imageNamePath) {
 	unsigned int imageNameOffset = imageNamePath.find_last_of("\\") + 1;
@@ -29,14 +35,19 @@ VOID TraceCall(const ADDRINT callFrom, const ADDRINT callTo) {
 	IMG callFromImg = IMG_FindByAddress(callFrom);
 	IMG callToImg = IMG_FindByAddress(callTo);
 
+	RTN callFromRoutine = RTN_FindByAddress(callFrom);
+	RTN callToRoutine = RTN_FindByAddress(callTo);
+
 	if (isMainModuleToTrack) {
 		if (IMG_Valid(callFromImg)) {
 			if (IMG_Valid(callToImg)) {
-				if (IMG_IsMainExecutable(callFromImg) && !IMG_IsMainExecutable(callToImg)) {  // Call is not within the same module
-					trace << SEC_Name(RTN_Sec(RTN_FindByAddress(callFrom))) << ", ";
-					trace << "0x" << std::hex << callFrom - IMG_StartAddress(callFromImg) << ", ";
-					trace << ExtractImageName(IMG_Name(callToImg));
-					trace << "." << RTN_FindNameByAddress(callTo) << "+" << callTo - RTN_Address(RTN_FindByAddress(callTo)) << "\n";
+				if (callFromRoutine != RTN_Invalid() && callToRoutine != RTN_Invalid()) { // Call is from valid routine to valid routine
+					if (IMG_IsMainExecutable(callFromImg) && !IMG_IsMainExecutable(callToImg)) {  // Call is not within the same module
+						trace << SEC_Name(RTN_Sec(callFromRoutine)) << ", ";
+						trace << "0x" << std::hex << callFrom - IMG_StartAddress(callFromImg) << ", ";
+						trace << ExtractImageName(IMG_Name(callToImg));
+						trace << "." << RTN_FindNameByAddress(callTo) << "+" << callTo - RTN_Address(callToRoutine) << "\n";
+					}
 				}
 			}
 			else { // Call to some runtime code
@@ -50,14 +61,16 @@ VOID TraceCall(const ADDRINT callFrom, const ADDRINT callTo) {
 		}
 		else {  // Call came from some runtime code
 			if (IMG_Valid(callToImg)) { // Call is from runtime code to some valid module
-				if (!IMG_IsMainExecutable(callToImg)) { // Valid module is not the Main module [Just not logging call from runtime code back to Main module]
-					if (!(callFrom > pageStartAddress && callFrom < pageStartAddress + PAGE_ALLIGNMENT)) {
-						pageStartAddress = (callFrom / PAGE_ALLIGNMENT)*PAGE_ALLIGNMENT;
+				if (callToRoutine != RTN_Invalid()) { // Call is to valid routine
+					if (!IMG_IsMainExecutable(callToImg)) { // Valid module is not the Main module [Just not logging call from runtime code back to Main module]					
+						if (!(callFrom > pageStartAddress && callFrom < pageStartAddress + PAGE_ALLIGNMENT)) {
+							pageStartAddress = (callFrom / PAGE_ALLIGNMENT)*PAGE_ALLIGNMENT;
+						}
+						trace << ".shellcode" << ", ";
+						trace << std::hex << pageStartAddress << "." << "0x" << std::hex << callFrom - pageStartAddress << ", ";
+						trace << ExtractImageName(IMG_Name(callToImg));
+						trace << "." << RTN_FindNameByAddress(callTo) << "+" << callTo - RTN_Address(RTN_FindByAddress(callTo)) << "\n";
 					}
-					trace << ".shellcode" << ", ";
-					trace << std::hex << pageStartAddress << "." << "0x" << std::hex << callFrom - pageStartAddress << ", ";
-					trace << ExtractImageName(IMG_Name(callToImg));
-					trace << "." << RTN_FindNameByAddress(callTo) << "+" << callTo - RTN_Address(RTN_FindByAddress(callTo)) << "\n";
 				}
 			}
 		}
@@ -65,11 +78,13 @@ VOID TraceCall(const ADDRINT callFrom, const ADDRINT callTo) {
 	else {
 		if (IMG_Valid(callFromImg)) {
 			if (IMG_Valid(callToImg)) {
-				if ((IMG_Name(callFromImg).find(moduleToTrack) != string::npos) && (IMG_Name(callToImg).find(moduleToTrack) == string::npos)) { // Call is not within the same module
-					trace << SEC_Name(RTN_Sec(RTN_FindByAddress(callFrom))) << ", ";
-					trace << "0x" << std::hex << callFrom - IMG_StartAddress(callFromImg) << ", ";
-					trace << ExtractImageName(IMG_Name(callToImg));
-					trace << "." << RTN_FindNameByAddress(callTo) << "+" << callTo - RTN_Address(RTN_FindByAddress(callTo)) << "\n";
+				if (callFromRoutine != RTN_Invalid() && callToRoutine != RTN_Invalid()) { // Call is from valid routine to valid routine
+					if ((IMG_Name(callFromImg).find(moduleToTrack) != string::npos) && (IMG_Name(callToImg).find(moduleToTrack) == string::npos)) { // Call is not within the same module
+						trace << SEC_Name(RTN_Sec(RTN_FindByAddress(callFrom))) << ", ";
+						trace << "0x" << std::hex << callFrom - IMG_StartAddress(callFromImg) << ", ";
+						trace << ExtractImageName(IMG_Name(callToImg));
+						trace << "." << RTN_FindNameByAddress(callTo) << "+" << callTo - RTN_Address(RTN_FindByAddress(callTo)) << "\n";
+					}
 				}
 			}
 			else { // Call to some runtime code
@@ -83,19 +98,22 @@ VOID TraceCall(const ADDRINT callFrom, const ADDRINT callTo) {
 		}
 		else { // Call came from some runtime code
 			if (IMG_Valid(callToImg)) { // Call is from runtime code to some valid module
-				if (IMG_Name(callToImg).find(moduleToTrack) == string::npos) { // Valid module is not the specified module [Just not logging call from runtime code back to specified module]
-					if (!(callFrom > pageStartAddress && callFrom < pageStartAddress + PAGE_ALLIGNMENT)) {
-						pageStartAddress = (callFrom / PAGE_ALLIGNMENT)*PAGE_ALLIGNMENT;
+				if (callToRoutine != RTN_Invalid()) { // Call is to valid routine
+					if (IMG_Name(callToImg).find(moduleToTrack) == string::npos) { // Valid module is not the specified module [Just not logging call from runtime code back to specified module]				
+						if (!(callFrom > pageStartAddress && callFrom < pageStartAddress + PAGE_ALLIGNMENT)) {
+							pageStartAddress = (callFrom / PAGE_ALLIGNMENT)*PAGE_ALLIGNMENT;
+						}
+						trace << ".shellcode" << ", ";
+						trace << std::hex << pageStartAddress << "." << "0x" << std::hex << callFrom - pageStartAddress << ", ";
+						trace << ExtractImageName(IMG_Name(callToImg));
+						trace << "." << RTN_FindNameByAddress(callTo) << "+" << callTo - RTN_Address(RTN_FindByAddress(callTo)) << "\n";
 					}
-					trace << ".shellcode" << ", ";
-					trace << std::hex << pageStartAddress << "." << "0x" << std::hex << callFrom - pageStartAddress << ", ";
-					trace << ExtractImageName(IMG_Name(callToImg));
-					trace << "." << RTN_FindNameByAddress(callTo) << "+" << callTo - RTN_Address(RTN_FindByAddress(callTo)) << "\n";
 				}
 			}
 		}
 	}
 
+	trace.flush();
 	PIN_UnlockClient();
 }
 
@@ -119,7 +137,7 @@ VOID Fini(INT32 code, VOID *v)
 
 INT32 Usage()
 {
-	PIN_ERROR("This Pintool application logs the Windows API calls and calls to runtime generated code\n");
+	PIN_ERROR("This Pintool application logs the cross module calls made by the specified module\n");
 	return -1;
 }
 
@@ -152,6 +170,9 @@ int main(int argc, char * argv[])
 
 	// Register Fini to be called when the application exits
 	PIN_AddFiniFunction(Fini, 0);
+
+	// Register PIN exception Handler
+	PIN_AddInternalExceptionHandler(ExceptionHandler, NULL);
 
 	// Start the program, never returns
 	PIN_StartProgram();
