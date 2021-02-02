@@ -5,7 +5,7 @@ You can also specify the name for the output log file. If no name is specified d
 
 ### Usage:
 
-pin.exe -t TraceAPI.dll [-m "ModuleName"] [-o "OutputFileName"] -- [executable] [arguments]
+pin.exe -t TraceAPI.dll [-m "ModuleName"] [-o "OutputFileName"] -- executable [arguments]
 
 **Example command-line for "exe":**
 
